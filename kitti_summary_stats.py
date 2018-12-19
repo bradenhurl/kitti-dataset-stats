@@ -1,27 +1,54 @@
 import os
 import numpy as np
+import math
+import sys
 
 classes = ['Pedestrian', 'Car', 'Cyclist']
 
 def main():
     #label_dir
-    data_dir = 'E:/data/object/labels'
+    data_dir = 'E:/data/object/label_2'
+    #data_dir = 'E:/Kitti/object/training/label_2'
     ped_count = 0
+    cyc_count = 0
+    car_count = 0
     ped_distance_var = 0
     distance = []
     print(data_dir)
 
     #crawl through all files in the directory
+    files = os.listdir(data_dir)
+    num_files = len(files)
+    file_idx = 0
     for file in os.listdir(data_dir):
+        sys.stdout.write("\rProcessing index {} / {}".format(
+            file_idx + 1, num_files))
+        sys.stdout.flush()
         filepath = data_dir + '/' + file
         if os.stat(filepath).st_size != 0:
             idx = int(os.path.splitext(file)[0])
-            obj_list = read_labels(data_dir, idx)
-            for obj in obj_list:
-                if obj.type == 'Cyclist':
-                        print(obj.type, idx)
+            if idx < 20000:
+                obj_list = read_labels(data_dir, idx)
+                for obj in obj_list:
+                    x = obj.t[0]**2
+                    y = obj.t[1]**2
+                    z = obj.t[2]**2
+                    dist = math.sqrt(x + y + z)
+                    if dist < 80:
+                        if obj.type == 'Cyclist':
+                            cyc_count = cyc_count + 1
+                        if obj.type == 'Pedestrian':
+                            ped_count = ped_count + 1
+                        if obj.type == 'Car':
+                            car_count = car_count + 1
+        
+        #Update indices
+        file_idx = file_idx + 1
 
     #print summary stats
+    print("\nPed count: ", ped_count)
+    print("Cyc count: ", cyc_count)
+    print("Car count: ", car_count)
 
 class ObjectLabel:
     """Object Label Class
