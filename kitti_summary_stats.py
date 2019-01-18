@@ -2,180 +2,204 @@ import os
 import numpy as np
 import math
 import sys
+from wavedata.tools.obj_detection import obj_utils
 
-classes = ['Pedestrian', 'Car', 'Cyclist']
+#Set this index to exit after this many files
+exit_idx = -1
 
 def main():
-    #label_dir
-    data_dir = 'E:/data/object/label_2'
-    #data_dir = 'E:/Kitti/object/training/label_2'
-    ped_count = 0
-    cyc_count = 0
-    car_count = 0
+    #INPUTS
+    #dataset_dir = 'E:/data/object/label_2'
+    label_dir = '/object/training/label_2'
+    output_file = '/media/bradenhurl/hd/dataset_stats.txt'
+
+    dataset_dir = '/home/bradenhurl/GTAData/'
+    data_dir = dataset_dir + label_dir
+    gta_classes, gta_obj_counts, gta_obj_images = getDatasetStats(data_dir)
+
+    dataset_dir = '/home/bradenhurl/Kitti/'
+    data_dir = dataset_dir + label_dir
+    classes, obj_counts, obj_images = getDatasetStats(data_dir)
+
+    #Output txt file as latex table
+    with open(output_file, 'w+') as f:
+        for class_str in gta_classes:
+            writeLine(f, class_str, gta_classes, gta_obj_counts, gta_obj_images, classes, obj_counts, obj_images)
+
+        for class_str in classes:
+            if class_str not in gta_classes:
+                writeLine(f, class_str, gta_classes, gta_obj_counts, gta_obj_images, classes, obj_counts, obj_images)
+
+def writeLine(f, class_str, gta_classes, gta_obj_counts, gta_obj_images,
+              classes, obj_counts, obj_images):
+    inGTA = class_str in gta_classes
+    gta_idx = -1
+    if inGTA:
+        gta_idx = gta_classes.index(class_str)
+    inKitti = class_str in classes
+    class_idx = -1
+    if inKitti:
+        class_idx = classes.index(class_str)
+
+    gta_count = 'NA'
+    kitti_count = 'NA'
+    gta_avg = 'NA'
+    kitti_avg = 'NA'
+    if inGTA:
+        gta_count = gta_obj_counts[gta_idx]
+        gta_avg = "{:.2f}".format(gta_obj_counts[gta_idx] / gta_obj_images[gta_idx])
+    if inKitti:
+        kitti_count = obj_counts[class_idx]
+        kitti_avg = "{:.2f}".format(obj_counts[class_idx] / obj_images[class_idx])
+    f.write("{} & {} & {} & {} & {}\\\\\n".format(class_str,
+                                                kitti_count,
+                                                gta_count,
+                                                kitti_avg,
+                                                gta_avg
+                                                ))
+
+def getDatasetStats(data_dir):
+    print(data_dir)
+    print(os.path.abspath(obj_utils.__file__))
+
+    #Need to change these next 2
     ped_distance_var = 0
     distance = []
-    print(data_dir)
+
+    classes = []
+    obj_counts = []
+    obj_images = []
 
     #crawl through all files in the directory
     files = os.listdir(data_dir)
     num_files = len(files)
     file_idx = 0
+    max_dist = 0
     for file in os.listdir(data_dir):
         sys.stdout.write("\rProcessing index {} / {}".format(
             file_idx + 1, num_files))
         sys.stdout.flush()
         filepath = data_dir + '/' + file
+        contains = []
         if os.stat(filepath).st_size != 0:
             idx = int(os.path.splitext(file)[0])
-            if idx < 20000:
-                obj_list = read_labels(data_dir, idx)
-                for obj in obj_list:
-                    x = obj.t[0]**2
-                    y = obj.t[1]**2
-                    z = obj.t[2]**2
-                    dist = math.sqrt(x + y + z)
-                    if dist < 80:
-                        if obj.type == 'Cyclist':
-                            cyc_count = cyc_count + 1
-                        if obj.type == 'Pedestrian':
-                            ped_count = ped_count + 1
-                        if obj.type == 'Car':
-                            car_count = car_count + 1
+            if idx < 40000:
+                continue
+            obj_list = obj_utils.read_labels(data_dir, idx)
+            for obj in obj_list:
+                x = obj.t[0]**2
+                y = obj.t[1]**2
+                z = obj.t[2]**2
+                dist = math.sqrt(x + y + z)
+                contains.append(obj.type)
+                if obj.type not in classes:
+                    classes.append(obj.type)
+                    obj_counts.append(0)
+                    obj_images.append(0)
+                #if obj.type == 'Pedestrian':
+                    #max_dist = max(max_dist, dist)
+                #if dist < 80:
+                class_idx = classes.index(obj.type)
+                obj_counts[class_idx] = obj_counts[class_idx] + 1
+                #elif obj.type == 'Pedestrian':
+                #    print(obj.t[0], obj.t[1], obj.t[2])
+                #    print(dist, idx)
         
+        for obj_class in classes:
+            if obj_class in contains:
+                class_idx = classes.index(obj_class)
+                obj_images[class_idx] = obj_images[class_idx] + 1
+
+        if idx % 1000 == 0:
+            for obj_class in classes:
+                if obj_class == 'Pedestrian':
+                    class_idx = classes.index(obj_class)
+                    print("\n{} count: {}".format(obj_class, obj_counts[class_idx]))
+                    print("{} image count: {}".format(obj_class, obj_images[class_idx]))
+            classes = []
+            obj_counts = []
+            obj_images = []
         #Update indices
         file_idx = file_idx + 1
 
+        if file_idx == exit_idx:
+            break
+
+    return classes, obj_counts, obj_images
+    print("")
     #print summary stats
-    print("\nPed count: ", ped_count)
-    print("Cyc count: ", cyc_count)
-    print("Car count: ", car_count)
-
-class ObjectLabel:
-    """Object Label Class
-    1    type         Describes the type of object: 'Car', 'Van', 'Truck',
-                      'Pedestrian', 'Person_sitting', 'Cyclist', 'Tram',
-                      'Misc' or 'DontCare'
-    1    truncated    Float from 0 (non-truncated) to 1 (truncated), where
-                      truncated refers to the object leaving image boundaries
-    1    occluded     Integer (0,1,2,3) indicating occlusion state:
-                      0 = fully visible, 1 = partly occluded
-                      2 = largely occluded, 3 = unknown
-    1    alpha        Observation angle of object, ranging [-pi..pi]
-    4    bbox         2D bounding box of object in the image (0-based index):
-                      contains left, top, right, bottom pixel coordinates
-    3    dimensions   3D object dimensions: height, width, length (in meters)
-    3    location     3D object location x,y,z in camera coordinates (in meters)
-    1    rotation_y   Rotation ry around Y-axis in camera coordinates [-pi..pi]
-    1    score        Only for results: Float, indicating confidence in
-                      detection, needed for p/r curves, higher is better.
-    """
-
-    def __init__(self):
-        self.type = ""  # Type of object
-        self.truncation = 0.
-        self.occlusion = 0.
-        self.alpha = 0.
-        self.x1 = 0.
-        self.y1 = 0.
-        self.x2 = 0.
-        self.y2 = 0.
-        self.h = 0.
-        self.w = 0.
-        self.l = 0.
-        self.t = (0., 0., 0.)
-        self.ry = 0.
-        self.score = 0.
-
-    def __eq__(self, other):
-        """Compares the given object to the current ObjectLabel instance.
-        :param other: object to compare to this instance against
-        :return: True, if other and current instance is the same
-        """
-        if not isinstance(other, ObjectLabel):
-            return False
-
-        if self.__dict__ != other.__dict__:
-            return False
-        else:
-            return True
-
-def read_labels(label_dir, img_idx, results=False):
-    """Reads in label data file from Kitti Dataset.
-    Returns:
-    obj_list -- List of instances of class ObjectLabel.
-    Keyword arguments:
-    label_dir -- directory of the label files
-    img_idx -- index of the image
-    """
-
-    # Define the object list
-    obj_list = []
-
-    # Extract the list
-    if os.stat(label_dir + "/%06d.txt" % img_idx).st_size == 0:
-        return
-
-    if results:
-        p = np.loadtxt(label_dir + "/%06d.txt" % img_idx, delimiter=' ',
-                       dtype=str,
-                       usecols=np.arange(start=0, step=1, stop=16))
-    else:
-        p = np.loadtxt(label_dir + "/%06d.txt" % img_idx, delimiter=' ',
-                       dtype=str,
-                       usecols=np.arange(start=0, step=1, stop=15))
-
-    # Check if the output is single dimensional or multi dimensional
-    if len(p.shape) > 1:
-        label_num = p.shape[0]
-    else:
-        label_num = 1
-
-    for idx in np.arange(label_num):
-        obj = ObjectLabel()
-
-        if label_num > 1:
-            # Fill in the object list
-            obj.type = p[idx, 0]
-            obj.truncation = float(p[idx, 1])
-            obj.occlusion = float(p[idx, 2])
-            obj.alpha = float(p[idx, 3])
-            obj.x1 = float(p[idx, 4])
-            obj.y1 = float(p[idx, 5])
-            obj.x2 = float(p[idx, 6])
-            obj.y2 = float(p[idx, 7])
-            obj.h = float(p[idx, 8])
-            obj.w = float(p[idx, 9])
-            obj.l = float(p[idx, 10])
-            obj.t = (float(p[idx, 11]), float(p[idx, 12]), float(p[idx, 13]))
-            obj.ry = float(p[idx, 14])
-            if results:
-                obj.score = float(p[idx, 15])
-            else:
-                obj.score = 0.0
-        else:
-            # Fill in the object list
-            obj.type = p[0]
-            obj.truncation = float(p[1])
-            obj.occlusion = float(p[2])
-            obj.alpha = float(p[3])
-            obj.x1 = float(p[4])
-            obj.y1 = float(p[5])
-            obj.x2 = float(p[6])
-            obj.y2 = float(p[7])
-            obj.h = float(p[8])
-            obj.w = float(p[9])
-            obj.l = float(p[10])
-            obj.t = (float(p[11]), float(p[12]), float(p[13]))
-            obj.ry = float(p[14])
-            if results:
-                obj.score = float(p[15])
-            else:
-                obj.score = 0.0
-
-        obj_list.append(obj)
-
-    return obj_list
+    for obj_class in classes:
+        class_idx = classes.index(obj_class)
+        print("\n{} count: {}".format(obj_class, obj_counts[class_idx]))
+        print("{} image count: {}".format(obj_class, obj_images[class_idx]))
 
 
+def printEvery1000(data_dir):
+    print(data_dir)
+    print(os.path.abspath(obj_utils.__file__))
+
+    #Need to change these next 2
+    ped_distance_var = 0
+    distance = []
+
+    classes = []
+    obj_counts = []
+    obj_images = []
+
+    #crawl through all files in the directory
+    files = os.listdir(data_dir)
+    num_files = len(files)
+    file_idx = 0
+    max_dist = 0
+    startIdx = 40000
+    endIdx = 50000
+    for idx in range(40000,50000)
+        sys.stdout.write("\rProcessing index {} / {}".format(
+            idx + 1 - startIdx, endIdx - startIdx))
+        sys.stdout.flush()
+        filepath = data_dir + '/' + "{:06d}.txt"
+        contains = []
+        if os.stat(filepath).st_size != 0:
+            obj_list = obj_utils.read_labels(data_dir, idx)
+            for obj in obj_list:
+                x = obj.t[0]**2
+                y = obj.t[1]**2
+                z = obj.t[2]**2
+                dist = math.sqrt(x + y + z)
+                contains.append(obj.type)
+                if obj.type not in classes:
+                    classes.append(obj.type)
+                    obj_counts.append(0)
+                    obj_images.append(0)
+                class_idx = classes.index(obj.type)
+                obj_counts[class_idx] = obj_counts[class_idx] + 1
+        
+        for obj_class in classes:
+            if obj_class in contains:
+                class_idx = classes.index(obj_class)
+                obj_images[class_idx] = obj_images[class_idx] + 1
+
+        if idx % 1000 == 0:
+            for obj_class in classes:
+                if obj_class == 'Pedestrian':
+                    class_idx = classes.index(obj_class)
+                    print("\n{} count: {}".format(obj_class, obj_counts[class_idx]))
+                    print("{} image count: {}".format(obj_class, obj_images[class_idx]))
+            classes = []
+            obj_counts = []
+            obj_images = []
+        #Update indices
+        file_idx = file_idx + 1
+
+        if file_idx == exit_idx:
+            break
+
+    return classes, obj_counts, obj_images
+    print("")
+    #print summary stats
+    for obj_class in classes:
+        class_idx = classes.index(obj_class)
+        print("\n{} count: {}".format(obj_class, obj_counts[class_idx]))
+        print("{} image count: {}".format(obj_class, obj_images[class_idx]))
 
 main()
